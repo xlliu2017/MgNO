@@ -1,4 +1,4 @@
-# MgNO: Efficient Linear Operators Parameterization through Multigrid
+# MgNO: Efficient Linear Operators Parameterization via Multigrid
 
 ## Datasets
 Darcy smooth datasets and navier stokes (1e-5) dataset have been made available courtesy of [Zongyi Li (Caltech)](https://github.com/zongyi-li/fourier_neural_operator) under the MIT license. 
