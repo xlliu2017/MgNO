@@ -1,14 +1,32 @@
+"""
+Training script for the Navier-Stokes benchmark (1e-5 viscosity).
+
+The model is trained autoregressively: given the velocity field at time *t*,
+predict the velocity field at time *t+1*.  The training loop uses the
+full-rollout variant (``train_full_2``) by default.
+
+Usage example::
+
+    python navier.py --model_type MgNO \\
+        --num_iteration 10 10 10 20 20 --num_layer 5 \\
+        --num_channel_u 32 --num_channel_f 1 \\
+        --final_div_factor 50 --weight_decay 1e-5 \\
+        --lr 1e-3 --bias
+"""
+
 import torch
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 
 import matplotlib.pyplot as plt
-from utilities3 import *
+from utilities3 import (
+    getNavierDataSet3, getPath, getSavePath,
+    LpLoss, HsLoss, count_params,
+)
 import argparse
 import operator
-from functools import reduce
-from functools import partial
+from functools import reduce, partial
 
 from timeit import default_timer
 import logging
@@ -17,9 +35,17 @@ from models import MgNO_NS
 
 
 
+def train(model, model_type, optimizer, scheduler, trainLossFunc,
+          train_loader, train_l2_step, train_l2_full, dataOpt):
+    """Single-step autoregressive training loop.
 
-def train(model, model_type, optimizer, scheduler, trainLossFunc, train_loader, train_l2_step, train_l2_full, dataOpt): #
-        
+    For each batch, rolls out *T/step* prediction steps, accumulating the
+    loss at each step.
+
+    Returns:
+        tuple: ``(train_l2_step, 0, lr)`` – cumulative per-step loss,
+               placeholder full-loss (unused), and current learning rate.
+    """
     model.train()
     for xx, yy in train_loader:
         loss = 0
@@ -67,8 +93,16 @@ def train(model, model_type, optimizer, scheduler, trainLossFunc, train_loader, 
     scheduler.step()
     return  train_l2_step, 0, lr
 
-def train_full_2(model, model_type, optimizer, scheduler, trainLossFunc, train_loader, train_l2_step, train_l2_full, dataOpt): #
-        
+def train_full_2(model, model_type, optimizer, scheduler, trainLossFunc,
+                 train_loader, train_l2_step, train_l2_full, dataOpt):
+    """Full-sequence (non-autoregressive) training loop.
+
+    Passes the full input sequence to the model in a single forward call.
+    Used for MgNO_NS which directly predicts the next time step.
+
+    Returns:
+        tuple: ``(train_l2_step, 0, lr)``
+    """
     model.train()
     for xx, yy in train_loader:
         loss = 0
@@ -99,8 +133,16 @@ def train_full_2(model, model_type, optimizer, scheduler, trainLossFunc, train_l
     return  train_l2_step, 0, lr
 
 
-def trainRNNly(model, model_type, optimizer, scheduler, trainLossFunc, train_loader, train_l2_step, train_l2_full, dataOpt): #
-        
+def trainRNNly(model, model_type, optimizer, scheduler, trainLossFunc,
+               train_loader, train_l2_step, train_l2_full, dataOpt):
+    """Fully-autoregressive (RNN-style) training loop.
+
+    Feeds the model's own predictions back as inputs for subsequent steps,
+    accumulating both the per-step loss and the full-rollout loss.
+
+    Returns:
+        tuple: ``(train_l2_step, train_l2_full, lr)``
+    """
     model.train()
     for xx, yy in train_loader:
         loss = 0
@@ -220,9 +262,19 @@ def test(model, model_type, trainLossFunc, test_loader, test_l2_full, test_l2_fu
     return test_l2_full, test_l2_full_2, test_l2_step
 
 def objective(modelOpt, dataOpt, model_type='MgNO_NS', model_save=True):
-    ################################################################
-    # configs
-    ################################################################
+    """Train and evaluate MgNO_NS on the Navier-Stokes benchmark.
+
+    Args:
+        modelOpt: Model hyperparameter dict passed as ``**kwargs`` to
+            :class:`~models.MgNO_NS`.
+        dataOpt: Data configuration dict with keys ``'data'``, ``'path'``,
+            ``'ntrain'``, ``'ntest'``, ``'batch_size'``, ``'epochs'``,
+            ``'T_in'``, ``'T_out'``, ``'T'``, ``'step'``, ``'r'``,
+            ``'sampling'``, ``'loss_type'``, ``'learning_rate'``,
+            ``'final_div_factor'``, ``'div_factor'``, ``'weight_decay'``.
+        model_type: Model identifier string (default: ``'MgNO_NS'``).
+        model_save: Save the trained model to disk.
+    """
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     MODEL_PATH = getSavePath(dataOpt['data'], model_type)
     MODEL_PATH_PARA = getSavePath(dataOpt['data'], model_type, flag='para')

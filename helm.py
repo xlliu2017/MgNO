@@ -1,26 +1,60 @@
+"""
+Training script for the Helmholtz equation benchmark.
+
+Supported dataset keys:
+  - ``helm``: Helmholtz equation dataset (101×101 grid)
+
+Usage example::
+
+    python helm.py --data helm --epochs 100 --model_type MgNO_helm \\
+        --num_layer 4 --lr 3e-4 --final_div_factor 100 \\
+        --batch_size 10 --weight_decay 1e-5 --normalizer --GN \\
+        --num_channel_u 20 --num_iteration 1 1 1 1 2
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from models import MgNO_helm, MgNO_helm2
-import os, logging
+import os
+import logging
 import numpy as np
 import matplotlib.pyplot as plt
 
-from utilities3 import *
+from utilities3 import (
+    getDarcyDataSet, getHelmDataset, getPipeDataset,
+    getOptimizerScheduler, getDataSize, getSavePath,
+    HsLoss, HSloss_d, LpLoss, count_params,
+)
 from tqdm.auto import tqdm
-from torch.utils.data import DataLoader
-from torch.utils.data import TensorDataset
+from torch.utils.data import DataLoader, TensorDataset
 
 import argparse
-torch.set_printoptions(threshold=100000)
 
 
-    
+
+
 def objective(dataOpt, modelOpt, optimizerScheduler_args,
-                tqdm_disable=True, 
-              log_if=False, validate=False, model_type='MgNO', 
-              model_save=False, tune_if=False,):
+              tqdm_disable=True,
+              log_if=False, validate=False, model_type='MgNO_helm',
+              model_save=False, tune_if=False):
+    """Train and evaluate an MgNO model on the Helmholtz benchmark.
+
+    Args:
+        dataOpt: Data configuration dict.
+        modelOpt: Model hyperparameter dict.
+        optimizerScheduler_args: Optimiser/scheduler configuration dict.
+        tqdm_disable: Suppress the progress bar (default True).
+        log_if: Write training logs to file.
+        validate: Unused; kept for API compatibility.
+        model_type: ``'MgNO_helm'`` or ``'MgNO_helm2'``.
+        model_save: Save the trained model to disk.
+        tune_if: Unused; kept for API compatibility.
+
+    Returns:
+        float: Final test L2 loss.
+    """
     
     ################################################################
     # configs

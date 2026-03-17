@@ -1,26 +1,70 @@
+"""
+Training script for Darcy-flow (smooth, rough, multiscale) and pipe-flow.
+
+Supported dataset keys:
+  - ``darcy``       : smooth Darcy flow (421×421 grid, N=1024)
+  - ``darcy20c6``   : rough Darcy flow  (512×512 grid)
+  - ``a4f1``        : multiscale Darcy flow (triangular coefficients)
+  - ``pipe``        : internal pipe flow (Geo-FNO dataset)
+
+Usage example (smooth Darcy)::
+
+    python darcy.py --data darcy --model_type MgNO_DC_smooth \\
+        --sample_x --normalizer --normalizer_type PGN --GN \\
+        --num_channel_u 24 --num_layer 5 \\
+        --num_iteration 10 10 10 10 10 20 \\
+        --lr 5e-4 --batch_size 8 --epochs 500
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from models import MgNO_DC, MgNO_DC_smooth
-import os, logging
+import os
+import logging
 import numpy as np
 import matplotlib.pyplot as plt
 
-from utilities3 import *
+from utilities3 import (
+    getDarcyDataSet, getHelmDataset, getPipeDataset,
+    getOptimizerScheduler, getDataSize, getSavePath,
+    HsLoss, HSloss_d, LpLoss, count_params,
+)
 from tqdm.auto import tqdm
-from torch.utils.data import DataLoader
-from torch.utils.data import TensorDataset
+from torch.utils.data import DataLoader, TensorDataset
 
 import argparse
-torch.set_printoptions(threshold=100000)
 
 
-    
+
+
 def objective(dataOpt, modelOpt, optimizerScheduler_args,
-                tqdm_disable=True, 
-              log_if=False, validate=False, model_type='MgNO', 
-              model_save=False, tune_if=False,):
+              tqdm_disable=True,
+              log_if=False, validate=False, model_type='MgNO',
+              model_save=False, tune_if=False):
+    """Train and evaluate an MgNO model on a Darcy or pipe-flow benchmark.
+
+    Args:
+        dataOpt: Data configuration dict.  Required keys: ``'data'``,
+            ``'batch_size'``, ``'loss_type'``, ``'dataSize'``, ``'GN'``,
+            ``'normalizer_type'``, ``'sample_x'``, ``'sampling_rate'``.
+        modelOpt: Model hyperparameter dict passed as ``**kwargs`` to the model
+            constructor.  The ``'normalizer'`` entry is replaced with the
+            fitted ``y_normalizer`` object before construction.
+        optimizerScheduler_args: Dict with ``'optimizer_type'``, ``'lr'``,
+            ``'weight_decay'``, ``'epochs'``, ``'final_div_factor'``, and
+            ``'div_factor'``.
+        tqdm_disable: Suppress the progress bar (default True).
+        log_if: Write training logs to a file (default False).
+        validate: Unused; kept for API compatibility.
+        model_type: One of ``'MgNO_DC'``, ``'MgNO_DC_smooth'``.
+        model_save: Save the trained model to disk.
+        tune_if: Unused; kept for API compatibility.
+
+    Returns:
+        float: Final test L2 loss.
+    """
     
     ################################################################
     # configs
@@ -75,11 +119,10 @@ def objective(dataOpt, modelOpt, optimizerScheduler_args,
     ################################################################
     # training and evaluation
     ################################################################
-    if dataOpt['data'] == 'darcy20c6':
-        model = MgNO_DC(**modelOpt).to(device)
-    elif dataOpt['data'] == 'darcy':
+    # Select model: MgNO_DC_smooth for smooth data, MgNO_DC otherwise
+    if model_type == 'MgNO_DC_smooth':
         model = MgNO_DC_smooth(**modelOpt).to(device)
-    elif dataOpt['data'] == 'pipe':
+    else:
         model = MgNO_DC(**modelOpt).to(device)
 
     if log_if:    
