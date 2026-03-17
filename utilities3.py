@@ -1,3 +1,10 @@
+"""
+Utility functions for MgNO experiments.
+
+Includes data loading helpers for all supported benchmarks, loss functions
+(Lp, Sobolev H^1), normalizers, and optimiser/scheduler factories.
+"""
+
 import torch
 import numpy as np
 import scipy.io
@@ -12,13 +19,10 @@ from matplotlib.ticker import LinearLocator
 from datetime import date, datetime
 
 from Adam import Adam
-#################################################
-#
-# Utilities
-#
-#################################################
 
-# reading data
+# ---------------------------------------------------------------------------
+# Data readers
+# ---------------------------------------------------------------------------
 class MatReader(object):
     def __init__(self, file_path, to_torch=True, to_cuda=False, to_float=True):
         super().__init__()
@@ -402,78 +406,86 @@ def count_params(model):
     return sum([p.numel()*2 if p.is_complex() else p.numel() for p in model.parameters()])
 
 def getPath(data, flag):
-    
-    
-    if data=='darcy':
-        if flag=='train':
-            PATH = os.path.join(os.path.abspath(''),'data/piececonst_r421_N1024_smooth1.mat')
-        else:
-            PATH = os.path.join(os.path.abspath(''), 'data/piececonst_r421_N1024_smooth2.mat')
+    """Return the file-system path for the requested dataset split.
 
-    elif data=='darcy20c6':
-        # for ray tune
-        if flag=='train':
-            PATH = '/ibex/ai/home/liux0t/FMM/darcy_alpha2_tau5_512_train.mat' 
-        elif flag=='test':
-            PATH = '/ibex/ai/home/liux0t/FMM/darcy_alpha2_tau5_512_test.mat'
-        elif flag=='val':
-            PATH = '/ibex/ai/home/liux0t/FMM/darcy_alpha2_tau5_512_train.mat' 
-        elif flag=='gel':
-            PATH = '/ibex/ai/home/liux0t/ FMM/darcy_alpha2_tau18_c3_512_test.mat'
-        else: raise NameError('invalid flag name')
-        
-    elif data=='darcy20c6_c3':
-        TRAIN_PATH = os.path.join(os.path.abspath(''), 'darcy_alpha2_tau5_512_train.mat')
-        TEST_PATH = '/ibex/ai/home/liux0t/ FMM/darcy_alpha2_tau18_c3_512_test.mat'
-    elif data=='darcy15c10':
-        TRAIN_PATH = os.path.join(os.path.abspath(''), 'darcy_alpha2_tau15_c10_512_train.mat')
-        TEST_PATH = os.path.join(os.path.abspath(''), 'darcy_alpha2_tau15_c10_512_test.mat')
-    elif data=='a3f2':
-        TRAIN_PATH = os.path.join(os.path.abspath(''), 'data/mul_res1023_a3f2_train.mat')
-        TEST_PATH = os.path.join(os.path.abspath(''), 'data/mul_res1023_a3f2_test.mat')
-    
-    elif data=='a4f1':
-        if flag=='train':
-            PATH = '/ibex/ai/home/liux0t/ FMM/data/mul_tri_train.mat'
-        else:
-            PATH = '/ibex/ai/home/liux0t/ FMM/data/mul_tri_test.mat'
-    elif data=='checker':
-        TRAIN_PATH = '/home/xubo/multiscale-attention/data/mul_res1023_a7f1m32_train.mat'
-        TEST_PATH = '/home/xubo/multiscale-attention/data/mul_res1023_a7f1m32_test.mat'
-    elif data=='checkerm4':
-        TRAIN_PATH = '/home/xubo/multiscale-attention/data/mul_res1023_a7f1m4_train.mat'
-        TEST_PATH = '/home/xubo/multiscale-attention/data/mul_res1023_a7f1m4_test.mat'
-    elif data=='darcyF':
-        if flag in ['train', 'val']:
-            PATH = '/ibex/ai/home/liux0t/ FMM/data/darcy_alpha2_tau9_512_F_train.mat'
-        else:
-            PATH = '/ibex/ai/home/liux0t/ FMM/data/darcy_alpha2_tau9_512_F_test.mat'   
-    elif data=='darcyF2':
-        TRAIN_PATH = os.path.join(os.path.abspath(''), 'darcy_alpha2_tau9_512_F_train.mat')
-        TEST_PATH = os.path.join(os.path.abspath(''), 'darcy_alpha2_tau9_512_F_test.mat')    
-    elif data=='burgers':
-        TRAIN_PATH = os.path.join(os.path.abspath(''), 'burgers_data_R10.mat')
-    elif data=='navier':
-        TRAIN_PATH = '/home/liux0t/FMM/data/ns_V1e-4_N10000_T30.mat'
-        TEST_PATH = '/home/liux0t/FMM/data/ns_V1e-4_N10000_T30.mat'
-    elif data=='helmholtz':
-        if flag=='train':
-            PATH = '/ibex/ai/home/liux0t/ FMM/data/Hel_train.mat'
-        else:
-            PATH = '/ibex/ai/home/liux0t/ FMM/data/Hel_test.mat'
-    elif data=='helm':
-        if flag=='x':
-            PATH = '/ibex/ai/home/liux0t/ FMM/data/Helmholtz_inputs.npy'
-        else:
-            PATH = '/ibex/ai/home/liux0t/ FMM/data/Helmholtz_outputs.npy'
-    elif data=='1e-5':
-        PATH = '/ibex/ai/home/liux0t/ FMM/data/NavierStokes_V1e-5_N1200_T20.mat'
-    elif data=='1e-4':
-        PATH = '/ibex/ai/home/liux0t/ FMM/data/ns_V1e-4_N10000_T30.mat'
+    All datasets are expected to reside under a ``./data/`` directory relative
+    to the working directory.  The function supports the following dataset
+    identifiers:
 
-    else: raise NameError('invalid data name')
-    
-    return PATH
+    * ``'darcy'``         – smooth Darcy-flow (421×421)
+    * ``'darcy20c6'``     – rough Darcy-flow (512×512, alpha=2 tau=5)
+    * ``'a4f1'``          – multiscale Darcy-flow (triangular coefficients)
+    * ``'helm'``          – Helmholtz equation (101×101)
+    * ``'1e-5'``          – Navier-Stokes (Re=1e-5)
+    * ``'1e-4'``          – Navier-Stokes (Re=1e-4)
+
+    Args:
+        data: Dataset identifier string.
+        flag: Split identifier – typically ``'train'``, ``'test'``, ``'val'``,
+              ``'x'``, or ``'y'`` (Helmholtz inputs/outputs).
+
+    Returns:
+        str: Absolute path to the dataset file.
+
+    Raises:
+        NameError: If *data* is not a recognised dataset identifier.
+    """
+    data_dir = os.path.join(os.path.abspath(''), 'data')
+
+    if data == 'darcy':
+        if flag == 'train':
+            return os.path.join(data_dir, 'piececonst_r421_N1024_smooth1.mat')
+        else:
+            return os.path.join(data_dir, 'piececonst_r421_N1024_smooth2.mat')
+
+    elif data == 'darcy20c6':
+        if flag in ('train', 'val'):
+            return os.path.join(data_dir, 'darcy_alpha2_tau5_512_train.mat')
+        elif flag == 'test':
+            return os.path.join(data_dir, 'darcy_alpha2_tau5_512_test.mat')
+        else:
+            raise NameError(f"Invalid flag '{flag}' for dataset '{data}'")
+
+    elif data == 'darcy15c10':
+        if flag == 'train':
+            return os.path.join(data_dir, 'darcy_alpha2_tau15_c10_512_train.mat')
+        else:
+            return os.path.join(data_dir, 'darcy_alpha2_tau15_c10_512_test.mat')
+
+    elif data == 'a3f2':
+        if flag == 'train':
+            return os.path.join(data_dir, 'mul_res1023_a3f2_train.mat')
+        else:
+            return os.path.join(data_dir, 'mul_res1023_a3f2_test.mat')
+
+    elif data == 'a4f1':
+        if flag == 'train':
+            return os.path.join(data_dir, 'mul_tri_train.mat')
+        else:
+            return os.path.join(data_dir, 'mul_tri_test.mat')
+
+    elif data == 'darcyF':
+        if flag in ('train', 'val'):
+            return os.path.join(data_dir, 'darcy_alpha2_tau9_512_F_train.mat')
+        else:
+            return os.path.join(data_dir, 'darcy_alpha2_tau9_512_F_test.mat')
+
+    elif data == 'helm':
+        if flag == 'x':
+            return os.path.join(data_dir, 'Helmholtz_inputs.npy')
+        else:
+            return os.path.join(data_dir, 'Helmholtz_outputs.npy')
+
+    elif data == '1e-5':
+        return os.path.join(data_dir, 'NavierStokes_V1e-5_N1200_T20.mat')
+
+    elif data == '1e-4':
+        return os.path.join(data_dir, 'ns_V1e-4_N10000_T30.mat')
+
+    else:
+        raise NameError(f"Invalid dataset name '{data}'")
+
+
 
 def getDataSize(dataOpt):
     if dataOpt['data'] == 'darcy':
@@ -496,8 +508,26 @@ def getDataSize(dataOpt):
         raise NameError('dataset not exist')
     return dataOpt
 
-def getDarcyDataSet(dataOpt, flag, 
-return_normalizer=False, normalizer_type='PGN', normalizer=None):
+def getDarcyDataSet(dataOpt, flag,
+                    return_normalizer=False, normalizer_type='PGN',
+                    normalizer=None):
+    """Load a Darcy-flow dataset split.
+
+    Args:
+        dataOpt: Configuration dict with keys ``'data'``, ``'sampling_rate'``,
+            ``'dataSize'``, ``'GN'``, and optionally ``'normalizer_type'``.
+        flag: Split name – ``'train'``, ``'test'``, or ``'val'``.
+        return_normalizer: If True, also return fitted normalizer objects.
+        normalizer_type: ``'PGN'`` (pointwise Gaussian) or ``'GN'`` (global
+            Gaussian).  Ignored when *return_normalizer* is False.
+        normalizer: Pre-fitted normalizer for encoding test/val inputs.
+            Required when ``dataOpt['GN']`` is True and *return_normalizer*
+            is False.
+
+    Returns:
+        When *return_normalizer* is True: ``(x, y, x_normalizer, y_normalizer)``
+        Otherwise: ``(x, y)``
+    """
     PATH = getPath(dataOpt['data'], flag)
     r = dataOpt['sampling_rate']
     sample_idx = dataOpt['dataSize'][flag]
@@ -576,9 +606,27 @@ def getHelmDataset(dataOpt, return_normalizer=True, normalizer_type='PGN'):
     return x_train, y_train, x_test, y_test
 
 def getPipeDataset(dataOpt):
-    INPUT_X = '/ibex/ai/home/liux0t/ FMM/Pipe_X.npy'
-    INPUT_Y = '/ibex/ai/home/liux0t/ FMM/Pipe_Y.npy'
-    OUTPUT_Sigma = '/ibex/ai/home/liux0t/ FMM/Pipe_Q.npy'
+    """Load the pipe-flow dataset.
+
+    Expects the following files under ``./data/``:
+    - ``Pipe_X.npy``  – x-coordinates of the mesh (shape: s1 × s2 × N)
+    - ``Pipe_Y.npy``  – y-coordinates of the mesh (shape: s1 × s2 × N)
+    - ``Pipe_Q.npy``  – flow quantity (pressure/velocity, first component used)
+
+    Args:
+        dataOpt: Dictionary with dataset configuration (not used directly here,
+            present for API consistency with other ``get*Dataset`` functions).
+
+    Returns:
+        tuple: ``(x_train, y_train, x_test, y_test, x_val, y_val)`` as
+               ``torch.Tensor`` objects with shape
+               ``(n_samples, 2, s1, s2)`` for inputs and
+               ``(n_samples, s1, s2)`` for outputs.
+    """
+    data_dir = os.path.join(os.path.abspath(''), 'data')
+    INPUT_X = os.path.join(data_dir, 'Pipe_X.npy')
+    INPUT_Y = os.path.join(data_dir, 'Pipe_Y.npy')
+    OUTPUT_Sigma = os.path.join(data_dir, 'Pipe_Q.npy')
 
     ntrain = 1000
     ntest = 200
@@ -742,7 +790,23 @@ def getNavierDataSet3(opt, device, return_normalizer=False, GN=False, normalizer
 
 
 def getOptimizerScheduler(parameters, epochs, optimizer_type='adam', lr=0.001,
- weight_decay=1e-4, final_div_factor=1e1, div_factor=1e1):
+                          weight_decay=1e-4, final_div_factor=1e1,
+                          div_factor=1e1):
+    """Build an optimiser and a OneCycleLR scheduler.
+
+    Args:
+        parameters: Model parameters to optimise.
+        epochs: Total training epochs (determines scheduler length).
+        optimizer_type: One of ``'sgd'``, ``'rmsprop'``, ``'adagrad'``,
+            ``'adam'``, ``'adamax'``, ``'adamw'``.
+        lr: Peak learning rate.
+        weight_decay: L2 regularisation strength.
+        final_div_factor: Ratio between peak and final learning rate.
+        div_factor: Ratio between peak and initial learning rate.
+
+    Returns:
+        tuple: ``(optimizer, scheduler)``
+    """
     if optimizer_type == 'sgd':
         optimizer =  torch.optim.SGD(parameters, lr=lr, weight_decay=weight_decay)
     elif optimizer_type == 'rmsprop':
@@ -754,9 +818,9 @@ def getOptimizerScheduler(parameters, epochs, optimizer_type='adam', lr=0.001,
     elif optimizer_type == 'adamax':
         optimizer =  torch.optim.Adamax(parameters, lr=lr, weight_decay=weight_decay)
     elif optimizer_type == 'adamw':
-        optimizer =  torch.optim.AdamW(parameters, lr=lr, weight_decay=weight_decay)
+        optimizer = torch.optim.AdamW(parameters, lr=lr, weight_decay=weight_decay)
     else:
-        raise Exception("Unsupported optimizer: {}".format(name))
+        raise Exception(f"Unsupported optimizer: '{optimizer_type}'")
     
     scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr=lr, 
                                div_factor=div_factor, 
@@ -778,6 +842,22 @@ def getNavierDataLoader(dataPath, r, ntrain, ntest, T_in, T, batch_size, device,
     return train_loader, test_loader
 
 def getSavePath(data, model_name, flag='log'):
+    """Build a timestamped path for saving model logs or parameters.
+
+    Files are stored under a ``./model/`` directory.
+
+    Args:
+        data: Dataset name (used in the filename).
+        model_name: Model name (used in the filename).
+        flag: ``'log'`` returns a ``.log`` path; ``'para'`` returns a ``.pt``
+            path.
+
+    Returns:
+        str: Absolute path for the output file.
+
+    Raises:
+        NameError: If *flag* is not ``'log'`` or ``'para'``.
+    """
     if flag=='log':
         MODEL_PATH = os.path.join(os.path.abspath(''), 'model/' + model_name + data + str(datetime.now()) + '.log')
     elif flag=='para':
