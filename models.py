@@ -11,7 +11,7 @@ classical multigrid V-cycle:
   - MgNO variants       : top-level models for specific PDE benchmarks
 
 Reference:
-  Liu, X. et al. "MgNO: Efficient Parameterization of Linear Operators via
+  He, J., Liu, X. and Xu, J. "MgNO: Efficient Parameterization of Linear Operators via
   Multigrid." ICLR 2024.
   https://openreview.net/forum?id=eb3c8135137c8a60425a0320869ad87e
 """

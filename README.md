@@ -6,7 +6,7 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-1.13%2B-orange)](https://pytorch.org/)
 
 > **[MgNO: Efficient Parameterization of Linear Operators via Multigrid](https://openreview.net/forum?id=eb3c8135137c8a60425a0320869ad87e)**  
-> Xinliang Liu, Bo Shi, Zhengpeng Sun, Wenqi Ouyang, Xiangyue Liu, Yingdong Wang, Zheng Wang, Lei Bai  
+> Juncai He, Xinliang Liu, Jinchao Xu  
 > *International Conference on Learning Representations (ICLR), 2024*
 
 ---
@@ -235,10 +235,9 @@ python helm.py \
 If you use MgNO in your research, please cite:
 
 ```bibtex
-@inproceedings{liu2024mgno,
+@inproceedings{he2024mgno,
   title     = {{MgNO}: Efficient Parameterization of Linear Operators via Multigrid},
-  author    = {Liu, Xinliang and Shi, Bo and Sun, Zhengpeng and Ouyang, Wenqi
-               and Liu, Xiangyue and Wang, Yingdong and Wang, Zheng and Bai, Lei},
+  author    = {He, Juncai and Liu, Xinliang and Xu, Jinchao},
   booktitle = {International Conference on Learning Representations},
   year      = {2024},
   url       = {https://openreview.net/forum?id=eb3c8135137c8a60425a0320869ad87e}
