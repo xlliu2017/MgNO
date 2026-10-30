@@ -1,4 +1,5 @@
 h5py==3.7.0
+matplotlib==3.7.3
 numpy==1.23.5
 scipy==1.9.3
 timm==0.6.12

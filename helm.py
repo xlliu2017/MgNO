@@ -33,8 +33,6 @@ from torch.utils.data import DataLoader, TensorDataset
 import argparse
 
 
-
-
 def objective(dataOpt, modelOpt, optimizerScheduler_args,
               tqdm_disable=True,
               log_if=False, validate=False, model_type='MgNO_helm',
@@ -81,18 +79,9 @@ def objective(dataOpt, modelOpt, optimizerScheduler_args,
     # load data and data normalization
     ################################################################
    
-    if dataOpt['data'] in {'darcy', 'darcy20c6', 'darcy15c10', 'darcyF', 'darcy_contin', 'a4f1'}:
-        
-        x_train, y_train, x_normalizer, y_normalizer = getDarcyDataSet(dataOpt, flag='train', return_normalizer=True)
-        x_test, y_test = getDarcyDataSet(dataOpt, flag='test', return_normalizer=False, normalizer=x_normalizer)
-        x_val, y_val = getDarcyDataSet(dataOpt, flag='val', return_normalizer=False, normalizer=x_normalizer)
-        
-    elif dataOpt['data'] == 'helm':
-        x_train, y_train, x_test, y_test, x_val, y_val, x_normalizer, y_normalizer = getHelmDataset(dataOpt)
-    elif dataOpt['data'] == 'pipe':
-        x_train, y_train, x_test, y_test, x_val, y_val = getPipeDataset(dataOpt)
-    else: 
-        raise NameError('dataset not exist')
+    if dataOpt['data'] != 'helm':
+        raise ValueError("The Helmholtz models require the helm dataset")
+    x_train, y_train, x_test, y_test, x_val, y_val, x_normalizer, y_normalizer = getHelmDataset(dataOpt)
 
     if modelOpt['normalizer']:
         modelOpt['normalizer'] = y_normalizer
@@ -111,8 +100,10 @@ def objective(dataOpt, modelOpt, optimizerScheduler_args,
     ################################################################
     if model_type == 'MgNO_helm':
         model = MgNO_helm(**modelOpt).to(device)
-    else:
+    elif model_type == 'MgNO_helm2':
         model = MgNO_helm2(**modelOpt).to(device)
+    else:
+        raise ValueError(f"Unsupported model type: {model_type}")
 
 
 
@@ -120,10 +111,7 @@ def objective(dataOpt, modelOpt, optimizerScheduler_args,
         logging.info(count_params(model))
     optimizer, scheduler = getOptimizerScheduler(model.parameters(), **optimizerScheduler_args)
     
-    h1loss = HsLoss(d=2, p=2, k=1, size_average=False, res=y_train.size(1),)
-    h1loss.cuda(device)
-    if dataOpt['data'] == 'helm':
-        h1loss = HSloss_d()
+    h1loss = HSloss_d(reduction='sum')
     l2loss = LpLoss(size_average=False)  
     ############################
     def train(train_loader):
@@ -134,6 +122,7 @@ def objective(dataOpt, modelOpt, optimizerScheduler_args,
         for x, y in train_loader:
             optimizer.zero_grad()
             out = model(x)
+            out = out.squeeze(1) if out.ndim == 4 else out
             if dataOpt['loss_type']=='h1':
                 with torch.no_grad():
                     train_l2loss = l2loss(out, y)
@@ -168,10 +157,11 @@ def objective(dataOpt, modelOpt, optimizerScheduler_args,
         with torch.no_grad():
             for x, y in test_loader:
                 out = model(x)
+                out = out.squeeze(1) if out.ndim == 4 else out
                 test_l2 += l2loss(out, y).item()
                 test_h1 += h1loss(out, y)[0].item()
-        test_l2/= len(dataOpt['dataSize']['test'])
-        test_h1/= len(dataOpt['dataSize']['test'] )          
+        test_l2 /= len(test_loader.dataset)
+        test_h1 /= len(test_loader.dataset)
         
         return  test_l2, test_h1
 
@@ -183,7 +173,7 @@ def objective(dataOpt, modelOpt, optimizerScheduler_args,
     train_h1_rec, train_l2_rec, test_l2_rec, test_h1_rec = [], [], [], []
     val_l2_rec, val_h1_rec = [], [],
     
-    best_l2, best_test_l2, best_test_h1, arg_min_epoch = 1.0, 1.0, 1.0, 0  
+    best_l2, best_test_l2, best_test_h1, arg_min_epoch = float('inf'), float('inf'), float('inf'), 0
     with tqdm(total=optimizerScheduler_args['epochs'], disable=tqdm_disable) as pbar_ep:
                             
         for epoch in range(optimizerScheduler_args['epochs']):
@@ -244,14 +234,11 @@ def objective(dataOpt, modelOpt, optimizerScheduler_args,
 
 if __name__ == "__main__":
 
-    import helm
-    import argparse
-
     parser = argparse.ArgumentParser()
     parser.add_argument(
-            "--data", type=str, default="darcy20c6", help="data name, darcy, darcy20c6, darcy15c10, darcyF, darcy_contin")
+            "--data", choices=["helm"], default="helm", help="dataset name")
     parser.add_argument(
-            "--model_type", type=str, default="MgNO_helm", help="FNO, MgNO")
+            "--model_type", choices=["MgNO_helm", "MgNO_helm2"], default="MgNO_helm")
     parser.add_argument(
             "--epochs", type=int, default=500, help="number of epochs")
     parser.add_argument(
@@ -281,7 +268,7 @@ if __name__ == "__main__":
     parser.add_argument(
             "--num_channel_f", type=int, default=1, help="number of channels for f")
     parser.add_argument(
-            '--num_iteration', type=int, nargs='+', default=[[1,0], [1,0], [1,0], [1,0], [2,0]], help='number of iterations in each layer')
+            '--num_iteration', type=int, nargs='+', default=[1, 1, 1, 1, 2], help='pre-smoothing counts per level')
     parser.add_argument(
             '--padding_mode', type=str, default='zeros', help='padding mode')
   
@@ -289,10 +276,10 @@ if __name__ == "__main__":
     args = parser.parse_args()
     args = vars(args)
 
-    # for i in range(len(args['num_iteration'])):
-    #     for j in range(len(args['num_iteration'][i])):
-    #         args['num_iteration'][i][j] = int(args['num_iteration'][i][j])
-        
+    if len(args['num_iteration']) != 5 or any(n < 1 for n in args['num_iteration']):
+        parser.error("--num_iteration requires five positive counts for the 101x101 Helmholtz grid")
+    if args['model_type'] == 'MgNO_helm2':
+        args['num_iteration'] = [[n, 0] for n in args['num_iteration']]
 
     if  args['sample_x']:
         if args['data'] in {'darcy', 'darcy20c6', 'darcy15c10', 'darcyF', 'darcy_contin'}:
@@ -339,7 +326,7 @@ if __name__ == "__main__":
     optimizerScheduler_args['final_div_factor'] = args['final_div_factor']
     optimizerScheduler_args['div_factor'] = 2
 
-    helm.objective(dataOpt, modelOpt, optimizerScheduler_args, model_type=args['model_type'],
+    objective(dataOpt, modelOpt, optimizerScheduler_args, model_type=args['model_type'],
     validate=True, tqdm_disable=True, log_if=True, 
     model_save=True, )
 

@@ -11,6 +11,7 @@ import scipy.io
 import h5py
 from functools import reduce, partial
 import operator
+import pickle
 import torch.nn as nn
 import os
 import matplotlib.pyplot as plt
@@ -165,8 +166,8 @@ class GaussianNormalizer(nn.Module):
     def __init__(self, x, eps=0.00001):
         super(GaussianNormalizer, self).__init__()
 
-        self.mean = torch.mean(x)
-        self.std = torch.std(x)
+        self.register_buffer('mean', torch.mean(x))
+        self.register_buffer('std', torch.std(x))
         self.eps = eps
 
     def encode(self, x):
@@ -196,11 +197,9 @@ class GaussianImageNormalizer(object):
         return x
 
     def cuda(self):
-        self.mean = self.mean.cuda()
         self.std = self.std.cuda()
 
     def cpu(self):
-        self.mean = self.mean.cpu()
         self.std = self.std.cpu()
 
 
@@ -289,7 +288,13 @@ class HSloss_d(nn.MSELoss):
         temp = x - y
         z0, z1 = torch.gradient(temp, dim=(-2, -1), spacing=1/x.size(-1)) 
         agg = 10*temp**2 + z0**2 + z1**2
-        loss = torch.mean(torch.sqrt(torch.sum(agg, dim=(-2, -1))))  
+        values = torch.sqrt(torch.sum(agg, dim=(-2, -1)))
+        if self.reduction == 'sum':
+            loss = values.sum()
+        elif self.reduction == 'none':
+            loss = values
+        else:
+            loss = values.mean()
         return loss, torch.zeros(1), torch.zeros(x.size(0)), torch.zeros(x.size(0))
 
 class HSloss_d_2(nn.MSELoss):
@@ -376,17 +381,18 @@ class HsLoss(object):
             if k >= 1:
                 weight += a[0]**2 * (self.k_x**2 + self.k_y**2)
             if k >= 2:
-                weight += a[1]**2 * (self.k_x**4 + 2*self.k_x**2*k_y**2 + k_y**4)
+                weight += a[1]**2 * (self.k_x**4 + 2*self.k_x**2*self.k_y**2 + self.k_y**4)
             weight = torch.sqrt(weight)
             loss = self.rel(x*weight, y*weight)
             l2loss = self.rel(x, y)
         else:
-            loss = self.rel(x, y)
+            l2loss = self.rel(x, y)
+            loss = l2loss
             if k >= 1:
-                weight = a[0] * torch.sqrt(k_x**2 + k_y**2)
+                weight = a[0] * torch.sqrt(self.k_x**2 + self.k_y**2)
                 loss += self.rel(x*weight, y*weight)
             if k >= 2:
-                weight = a[1] * torch.sqrt(k_x**4 + 2*k_x**2*k_y**2 + k_y**4)
+                weight = a[1] * torch.sqrt(self.k_x**4 + 2*self.k_x**2*self.k_y**2 + self.k_y**4)
                 loss += self.rel(x*weight, y*weight)
             loss = loss / (k+1)
         
@@ -832,7 +838,10 @@ def getOptimizerScheduler(parameters, epochs, optimizer_type='adam', lr=0.001,
         
 
 def getNavierDataLoader(dataPath, r, ntrain, ntest, T_in, T, batch_size, device, model_name='vFMM', return_normalizer=False, GN=False, normalizer=None):
-    train_a, train_u, test_a, test_u = getNavierDataSet(dataPath, r, ntrain, ntest, T_in, T, device, return_normalizer, GN, normalizer)
+    train_a, train_u, test_a, test_u = getNavierDataSet(
+        dataPath, r, ntrain, ntest, T_in, T, device,
+        return_normalizer=return_normalizer, GN=GN, normalizer=normalizer,
+    )
     if model_name=='vFMM':       
         train_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(train_a.permute(0, 3, 1, 2), train_u.permute(0, 3, 1, 2)), batch_size=batch_size, shuffle=True)
         test_loader = torch.utils.data.DataLoader(torch.utils.data.TensorDataset(test_a.permute(0, 3, 1, 2), test_u.permute(0, 3, 1, 2)), batch_size=batch_size, shuffle=False)
@@ -858,13 +867,12 @@ def getSavePath(data, model_name, flag='log'):
     Raises:
         NameError: If *flag* is not ``'log'`` or ``'para'``.
     """
-    if flag=='log':
-        MODEL_PATH = os.path.join(os.path.abspath(''), 'model/' + model_name + data + str(datetime.now()) + '.log')
-    elif flag=='para':
-        MODEL_PATH = os.path.join(os.path.abspath(''), 'model/' + model_name + data + str(datetime.now()) + '.pt')
-    else:
+    if flag not in ('log', 'para'):
         raise NameError('invalid path flag')
-    return MODEL_PATH
+    directory = os.path.join(os.path.abspath(''), 'model')
+    os.makedirs(directory, exist_ok=True)
+    extension = '.log' if flag == 'log' else '.pt'
+    return os.path.join(directory, model_name + data + str(datetime.now()) + extension)
 
 def save_pickle(var, save_path):
     with open(save_path, 'wb') as f:
