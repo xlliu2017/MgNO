@@ -262,13 +262,13 @@ class MgNO_NS(nn.Module):
 
         self.conv_list = nn.ModuleList([
             MgConv(num_iteration, num_channel_u, num_channel_f,
-                   padding_mode='circular', bias=bias, use_res=use_res,
+                   padding_mode=padding_mode, bias=bias, use_res=use_res,
                    elementwise_affine=elementwise_affine)
         ])
         for _ in range(num_layer - 1):
             self.conv_list.append(
                 MgConv(num_iteration, num_channel_u, num_channel_u,
-                       padding_mode='circular', bias=bias, use_res=use_res,
+                       padding_mode=padding_mode, bias=bias, use_res=use_res,
                        elementwise_affine=elementwise_affine)
             )
 
@@ -754,7 +754,7 @@ class MgNO_helm(nn.Module):
         for i in range(self.num_layer):
             u = self.act(self.norm_layer_list[i](self.conv_list[i](u)))
         out = self.last_layer(u)
-        return self.normalizer.decode(torch.squeeze(out)) if self.normalizer else out
+        return self.normalizer.decode(out.squeeze(1)) if self.normalizer else out
 
 
 class MgNO_helm2(nn.Module):
@@ -810,7 +810,7 @@ class MgNO_helm2(nn.Module):
         for i in range(self.num_layer):
             u = self.act(self.conv_list[i](u))
         out = self.mlp(u)
-        return self.normalizer.decode(torch.squeeze(out)) if self.normalizer else out
+        return self.normalizer.decode(out.squeeze(1)) if self.normalizer else out
 
 
 class MgConv_helm3(nn.Module):
@@ -1036,4 +1036,3 @@ if __name__ == "__main__":
     summary(model, input_size=(10, 1, 129, 129))
     out.sum().backward()
     print('Forward + backward pass successful!')
-

@@ -92,8 +92,10 @@ MgNO/
 ├── helm.py            # Training script for Helmholtz equation
 ├── utilities3.py      # Data loaders, loss functions, normalizers, helpers
 ├── Adam.py            # Custom Adam optimizer
+├── experiment_args.py # Shared experiment argument parsing
 ├── requirements.txt   # Python dependencies
-└── baselines/         # Baseline model implementations (FNO, U-Net, MWT, …)
+├── baselines/         # Baseline model implementations (FNO, U-Net, MWT, …)
+└── tests/             # Lightweight regression tests
 ```
 
 ---
@@ -141,13 +143,27 @@ Download from [this link](https://data.caltech.edu/records/fp3ds-kej20):
 pip install -r requirements.txt
 ```
 
-Requirements: Python ≥ 3.8, PyTorch ≥ 1.13, CUDA recommended.
+The pinned dependencies target Python 3.8–3.10 and PyTorch 1.13; CUDA is
+recommended but the training scripts also support CPU execution. The optional
+baseline implementations have additional dependencies: the factorized FNO
+models require `einops`, while `mwt_model.py` and `unet_model.py` depend on
+external modules (`mwt` and `unet_parts`) that are not included here.
 
 ---
 
 ## Training
 
 Place all dataset files in `./data/` before running.
+Logs and saved models are written to `./model/`, which is created automatically.
+For Darcy and Navier-Stokes, each `--num_iteration` argument is a pre/post
+smoothing pair: `10` means one pre-smoothing and zero post-smoothing steps;
+use `2,10` for multi-digit counts. Helmholtz instead takes five positive
+pre-smoothing counts; for `MgNO_helm2` these are paired with zero post-smoothing
+steps.
+
+The provided pipe loader uses the same 200 examples for validation and test.
+Its validation metric is therefore not an independent estimate of generalization.
+Output normalization is not supported for the pipe dataset.
 
 ### Darcy Flow (smooth)
 
@@ -227,6 +243,11 @@ python helm.py \
 | `MgNO_NS` | Navier-Stokes | Circular padding, residual skip |
 | `MgNO_helm` | Helmholtz | Growing channel counts per level |
 | `MgNO_helm2` | Helmholtz (uniform channels) | Fixed channel count, MgConv_helm3 |
+
+## Testing
+
+After installing the dependencies, run `python -m unittest discover -s tests`.
+Tests use synthetic data and do not require benchmark datasets or a GPU.
 
 ---
 

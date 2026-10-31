@@ -35,13 +35,12 @@ from tqdm.auto import tqdm
 from torch.utils.data import DataLoader, TensorDataset
 
 import argparse
-
-
+from experiment_args import smoothing_pair
 
 
 def objective(dataOpt, modelOpt, optimizerScheduler_args,
               tqdm_disable=True,
-              log_if=False, validate=False, model_type='MgNO',
+              log_if=False, validate=False, model_type='MgNO_DC',
               model_save=False, tune_if=False):
     """Train and evaluate an MgNO model on a Darcy or pipe-flow benchmark.
 
@@ -101,6 +100,8 @@ def objective(dataOpt, modelOpt, optimizerScheduler_args,
         x_train, y_train, x_test, y_test, x_val, y_val, x_normalizer, y_normalizer = getHelmDataset(dataOpt)
     elif dataOpt['data'] == 'pipe':
         x_train, y_train, x_test, y_test, x_val, y_val = getPipeDataset(dataOpt)
+        if modelOpt['normalizer']:
+            raise ValueError("Output normalization is not supported for the pipe dataset")
     else: 
         raise NameError('dataset not exist')
 
@@ -122,8 +123,10 @@ def objective(dataOpt, modelOpt, optimizerScheduler_args,
     # Select model: MgNO_DC_smooth for smooth data, MgNO_DC otherwise
     if model_type == 'MgNO_DC_smooth':
         model = MgNO_DC_smooth(**modelOpt).to(device)
-    else:
+    elif model_type == 'MgNO_DC':
         model = MgNO_DC(**modelOpt).to(device)
+    else:
+        raise ValueError(f"Unsupported model type: {model_type}")
 
     if log_if:    
         logging.info(count_params(model))
@@ -132,7 +135,7 @@ def objective(dataOpt, modelOpt, optimizerScheduler_args,
     h1loss = HsLoss(d=2, p=2, k=1, size_average=False, res=y_train.size(1),)
     h1loss.cuda(device)
     if dataOpt['data'] == 'helm':
-        h1loss = HSloss_d()
+        h1loss = HSloss_d(reduction='sum')
     l2loss = LpLoss(size_average=False)  
     ############################
     def train(train_loader):
@@ -143,6 +146,8 @@ def objective(dataOpt, modelOpt, optimizerScheduler_args,
         for x, y in train_loader:
             optimizer.zero_grad()
             out = model(x)
+            if dataOpt['data'] == 'helm':
+                out = out.squeeze(1) if out.ndim == 4 else out
             if dataOpt['loss_type']=='h1':
                 with torch.no_grad():
                     train_l2loss = l2loss(out, y)
@@ -177,10 +182,12 @@ def objective(dataOpt, modelOpt, optimizerScheduler_args,
         with torch.no_grad():
             for x, y in test_loader:
                 out = model(x)
+                if dataOpt['data'] == 'helm':
+                    out = out.squeeze(1) if out.ndim == 4 else out
                 test_l2 += l2loss(out, y).item()
                 test_h1 += h1loss(out, y)[0].item()
-        test_l2/= len(dataOpt['dataSize']['test'])
-        test_h1/= len(dataOpt['dataSize']['test'] )          
+        test_l2 /= len(test_loader.dataset)
+        test_h1 /= len(test_loader.dataset)
         
         return  test_l2, test_h1
 
@@ -192,7 +199,7 @@ def objective(dataOpt, modelOpt, optimizerScheduler_args,
     train_h1_rec, train_l2_rec, test_l2_rec, test_h1_rec = [], [], [], []
     val_l2_rec, val_h1_rec = [], [],
     
-    best_l2, best_test_l2, best_test_h1, arg_min_epoch = 1.0, 1.0, 1.0, 0  
+    best_l2, best_test_l2, best_test_h1, arg_min_epoch = float('inf'), float('inf'), float('inf'), 0
     with tqdm(total=optimizerScheduler_args['epochs'], disable=tqdm_disable) as pbar_ep:
                             
         for epoch in range(optimizerScheduler_args['epochs']):
@@ -253,9 +260,6 @@ def objective(dataOpt, modelOpt, optimizerScheduler_args,
 
 if __name__ == "__main__":
 
-    import darcy
-    import argparse
-
     parser = argparse.ArgumentParser()
     parser.add_argument(
             "--data", type=str, default="darcy20c6", help="data name, darcy, darcy20c6, darcy15c10, darcyF, darcy_contin")
@@ -290,7 +294,7 @@ if __name__ == "__main__":
     parser.add_argument(
             "--num_channel_f", type=int, default=1, help="number of channels for f")
     parser.add_argument(
-            '--num_iteration', type=list, nargs='+', default=[[1,0], [1,0], [1,0], [2,0], [2,0]], help='number of iterations in each layer')
+            '--num_iteration', type=smoothing_pair, nargs='+', default=[[1,0], [1,0], [1,0], [2,0], [2,0]], help='pre/post smoothing counts per level, e.g. 10 or 1,0')
     parser.add_argument(
             '--padding_mode', type=str, default='zeros', help='padding mode')
   
@@ -298,11 +302,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
     args = vars(args)
 
-    for i in range(len(args['num_iteration'])):
-        for j in range(len(args['num_iteration'][i])):
-            args['num_iteration'][i][j] = int(args['num_iteration'][i][j])
-        
-
+    if args['num_iteration'][0][0] < 1:
+        parser.error("the first level requires at least one pre-smoothing iteration")
     if  args['sample_x']:
         if args['data'] in {'darcy', 'darcy20c6', 'darcy15c10', 'darcyF', 'darcy_contin'}:
             args['sampling_rate'] = 2
@@ -338,6 +339,7 @@ if __name__ == "__main__":
     modelOpt['normalizer'] = args['normalizer'] 
     modelOpt['output_dim'] = 1
     modelOpt['activation'] = 'gelu'    
+    modelOpt['padding_mode'] = args['padding_mode']
  
 
     optimizerScheduler_args = {}
@@ -348,7 +350,7 @@ if __name__ == "__main__":
     optimizerScheduler_args['final_div_factor'] = args['final_div_factor']
     optimizerScheduler_args['div_factor'] = 2
 
-    darcy.objective(dataOpt, modelOpt, optimizerScheduler_args, model_type=args['model_type'],
+    objective(dataOpt, modelOpt, optimizerScheduler_args, model_type=args['model_type'],
     validate=True, tqdm_disable=True, log_if=True, 
     model_save=True, )
 

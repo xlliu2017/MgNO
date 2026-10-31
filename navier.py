@@ -32,6 +32,7 @@ from timeit import default_timer
 import logging
 from Adam import Adam
 from models import MgNO_NS
+from experiment_args import smoothing_pair
 
 
 
@@ -49,7 +50,8 @@ def train(model, model_type, optimizer, scheduler, trainLossFunc,
     model.train()
     for xx, yy in train_loader:
         loss = 0
-        xx, yy = xx.cuda(), yy.cuda()
+        device = next(model.parameters()).device
+        xx, yy = xx.to(device), yy.to(device)
         if model_type in ('FNO', 'UNO', 'FFNO', 'MWT', 'LSM'):
             for t in range(0, dataOpt['T'], dataOpt['step']):
                 x = xx[..., t:t + dataOpt['T_in']]
@@ -146,7 +148,8 @@ def trainRNNly(model, model_type, optimizer, scheduler, trainLossFunc,
     model.train()
     for xx, yy in train_loader:
         loss = 0
-        xx, yy = xx.cuda(), yy.cuda()
+        device = next(model.parameters()).device
+        xx, yy = xx.to(device), yy.to(device)
         if model_type in ('FNO', 'UNO', 'FFNO', 'MWT', 'LSM'):
             for t in range(0, dataOpt['T'], dataOpt['step']):
                 
@@ -202,10 +205,11 @@ def trainRNNly(model, model_type, optimizer, scheduler, trainLossFunc,
 
 @torch.no_grad()
 def test(model, model_type, trainLossFunc, test_loader, test_l2_full, test_l2_full_2, test_l2_step, dataOpt): #
-    
+    model.eval()
     for xx, yy in test_loader:
         loss = 0
-        xx, yy = xx.cuda(), yy.cuda()
+        device = next(model.parameters()).device
+        xx, yy = xx.to(device), yy.to(device)
         if model_type in ('FNO', 'UNO', 'MWT', 'FFNO', 'LSM'):
             for t in range(0, dataOpt['T'], dataOpt['step']):
                 y = yy[..., t:t + dataOpt['step']]
@@ -353,9 +357,6 @@ def objective(modelOpt, dataOpt, model_type='MgNO_NS', model_save=True):
 if __name__ == "__main__":
     
 
-    import navier
-    import argparse
-    
     parser = argparse.ArgumentParser()
     parser.add_argument(
             "--data", type=str, default="1e-5", help="data name, darcy, darcy20c6, darcy15c10, darcyF, darcy_contin"
@@ -377,7 +378,7 @@ if __name__ == "__main__":
     parser.add_argument(
             "--weight_decay", type=float, default=1e-5, help="weight decay")
     parser.add_argument(
-            "--loss_type", type=str, default="l2", help="loss type, l2, h1")
+            "--loss_type", choices=["l2", "h1"], default="l2", help="loss type")
 
     parser.add_argument(
             "--num_layer", type=int, default=5, help="number of layers"
@@ -389,23 +390,22 @@ if __name__ == "__main__":
             "--num_channel_f", type=int, default=1, help="number of channels in f"
     )
     parser.add_argument(
-            '--num_iteration', type=list, nargs='+', default=[[1,0], [1,0], [1,0], [2,0], [2,0]],  help='number of iterations in each layer')
+            '--num_iteration', type=smoothing_pair, nargs='+', default=[[1,0], [1,0], [1,0], [2,0], [2,0]], help='pre/post smoothing counts per level, e.g. 10 or 1,0')
     parser.add_argument('--padding_mode', type=str, default='circular', help='padding mode')
     parser.add_argument('--mlp_hidden_dim', type=int, default=0)
     parser.add_argument('--bias', action='store_true',)
     args = parser.parse_args()
     args = vars(args)
 
-    for i in range(len(args['num_iteration'])):
-        for j in range(len(args['num_iteration'][i])):
-            args['num_iteration'][i][j] = int(args['num_iteration'][i][j])
+    if args['num_iteration'][0][0] < 1:
+        parser.error("the first level requires at least one pre-smoothing iteration")
     dataOpt = {}
     dataOpt['data'] = args['data']
     dataOpt['path'] =  getPath(args['data'], flag=None)#'/ibex/ai/home/liux0t/Xinliang/FMM/data/ns_V1e-3_N5000_T50.mat' #'/ibex/ai/home/liux0t/Xinliang/FMM/data/ns_V1e-4_N10000_T30.mat'#'/ibex/ai/home/liux0t/Xinliang/FMM/data/NavierStokes_V1e-5_N1200_T20.mat' ##
     dataOpt['ntrain'] = 1000
     dataOpt['ntest'] = 100
-    dataOpt['batch_size'] = 50
-    dataOpt['epochs'] = 500
+    dataOpt['batch_size'] = args['batch_size']
+    dataOpt['epochs'] = args['epochs']
     dataOpt['T_in'] = 1
     dataOpt['T_out'] = 1
     dataOpt['T'] = 10
@@ -414,7 +414,7 @@ if __name__ == "__main__":
     dataOpt['sampling'] = 1
     dataOpt['full_train'] = True
     dataOpt['full_train_2'] = True
-    dataOpt['loss_type'] = 'L2'
+    dataOpt['loss_type'] = args['loss_type'].upper()
     dataOpt['GN'] = False
     dataOpt['learning_rate'] = args['lr']
     dataOpt['final_div_factor'] = args['final_div_factor']
@@ -435,4 +435,4 @@ if __name__ == "__main__":
     modelOpt['padding_mode'] = args['padding_mode']
     modelOpt['bias'] = args['bias']
 
-    navier.objective(modelOpt, dataOpt, model_type=args['model_type'],)
+    objective(modelOpt, dataOpt, model_type=args['model_type'],)
