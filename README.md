@@ -1,11 +1,11 @@
 # MgNO: Efficient Parameterization of Linear Operators via Multigrid
 
-[![ICLR 2024](https://img.shields.io/badge/ICLR-2024-blue)](https://openreview.net/forum?id=eb3c8135137c8a60425a0320869ad87e)
+[![ICLR 2024](https://img.shields.io/badge/ICLR-2024-blue)](https://arxiv.org/abs/2310.19809)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE.txt)
 [![Python 3.8+](https://img.shields.io/badge/Python-3.8%2B-brightgreen)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-1.13%2B-orange)](https://pytorch.org/)
 
-> **[MgNO: Efficient Parameterization of Linear Operators via Multigrid](https://openreview.net/forum?id=eb3c8135137c8a60425a0320869ad87e)**  
+> **[MgNO: Efficient Parameterization of Linear Operators via Multigrid](https://arxiv.org/abs/2310.19809)**<br>
 > Juncai He, Xinliang Liu, Jinchao Xu  
 > *International Conference on Learning Representations (ICLR), 2024*
 
@@ -71,14 +71,14 @@ MgNO achieves state-of-the-art or competitive performance on all benchmarks from
 
 | Benchmark | Metric | FNO | U-Net | MgNO |
 |-----------|--------|-----|-------|------|
-| Darcy (smooth) | Rel. L2 | 0.0108 | 0.0245 | **0.0047** |
-| Darcy (rough) | Rel. L2 | 0.0253 | 0.0491 | **0.0089** |
-| Darcy (multiscale) | Rel. L2 | 0.1668 | 0.1998 | **0.0986** |
-| Navier-Stokes (1e-5) | Rel. L2 | 0.1556 | — | **0.0820** |
-| Pipe flow | Rel. L2 | 0.0299 | 0.0378 | **0.0183** |
+| Darcy (smooth) | Rel. L2 | 0.00684 | 0.02169 | **0.00176** |
+| Darcy (rough) | Rel. L2 | 0.01613 | 0.03519 | **0.00339** |
+| Darcy (multiscale) | Rel. L2 | 0.01800 | 0.01425 | **0.00715** |
+| Navier-Stokes (1e-5) | Rel. L2 | 0.1556 | 0.1982 | **0.1082** |
+| Pipe flow | Rel. L2 | 0.0067 | 0.0065 | **0.0024** |
 | Helmholtz | H¹ | 0.0584 | — | **0.0284** |
 
-*Results from Table 1 & 2 of the ICLR 2024 paper.*
+*Results are from the ICLR 2024 paper. Darcy values are from Table 1; Navier-Stokes and Pipe values are from Table 2. Table-reported errors in `×10⁻²` are divided by 100 for decimal display. Helmholtz is measured with the relative H¹ error.*
 
 ---
 
@@ -261,7 +261,7 @@ If you use MgNO in your research, please cite:
   author    = {He, Juncai and Liu, Xinliang and Xu, Jinchao},
   booktitle = {International Conference on Learning Representations},
   year      = {2024},
-  url       = {https://openreview.net/forum?id=eb3c8135137c8a60425a0320869ad87e}
+  url       = {https://arxiv.org/abs/2310.19809}
 }
 ```
 
